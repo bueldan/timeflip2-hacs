@@ -88,32 +88,56 @@ class TimeflipAPI:
                 if response.status in [401, 403]:
                     try:
                         error_data = await response.json()
-                        if error_data.get("code") == 401001 or "jwt token" in error_data.get("message", "").lower():
-                            _LOGGER.warning("Token expired or invalid, re-authenticating...")
-                            self.token = None
-                            if await self.authenticate():
-                                return await self._request(method, endpoint, **kwargs)
-                            _LOGGER.error("Re-authentication failed")
-                            return None
-                    except:
-                        pass
+                        error_code = error_data.get("code")
+                        error_msg = error_data.get("message", "").lower()
 
-                    error_text = await response.text()
-                    _LOGGER.error(f"API request forbidden ({response.status}) for {endpoint}: {error_text}")
-                    return None
+                        # Check if it's specifically a token error
+                        if error_code == 401001 or "jwt token" in error_msg or "expired" in error_msg:
+                            if retry_count < max_retries:
+                                _LOGGER.warning(f"Token expired/invalid (attempt {retry_count + 1}/{max_retries + 1}), re-authenticating...")
 
+                                # Force new authentication
+                                self.token = None
+                                if await self.authenticate():
+                                    # Retry the request with new token
+                                    return await self._request(method, endpoint, retry_count + 1, **kwargs)
+                                else:
+                                    _LOGGER.error("Re-authentication failed, cannot retry request")
+                                    return None
+                            else:
+                                _LOGGER.error(f"Max retries ({max_retries}) reached for {endpoint}")
+                                return None
+
+                        # Other 403/401 errors
+                        _LOGGER.error(f"API forbidden ({response.status}) for {endpoint}: {error_data}")
+                        return None
+
+                    except Exception as e:
+                        error_text = await response.text()
+                        _LOGGER.error(f"Error parsing error response for {endpoint}: {e}, body: {error_text}")
+                        return None
+
+                # Success responses
                 if response.status in [200, 201]:
                     try:
-                        return await response.json()
-                    except:
+                        result = await response.json()
+                        _LOGGER.debug(f"✓ Request successful for {endpoint}")
+                        return result
+                    except Exception as e:
+                        # Some endpoints return empty response
+                        _LOGGER.debug(f"Empty or non-JSON response for {endpoint}")
                         return {}
 
+                # Other error statuses
                 error_text = await response.text()
                 _LOGGER.error(f"API request failed with status {response.status} for {endpoint}: {error_text}")
                 return None
 
+        except asyncio.TimeoutError:
+            _LOGGER.error(f"Request timeout for {endpoint}")
+            return None
         except Exception as e:
-            _LOGGER.error(f"API request error for {endpoint}: {e}")
+            _LOGGER.error(f"API request exception for {endpoint}: {e}")
             return None
 
     async def get_tasks(self) -> Optional[List[Dict]]:
@@ -123,6 +147,9 @@ class TimeflipAPI:
             active_tasks = [task for task in result if not task.get("deletedAt")]
             _LOGGER.info(f"Loaded {len(active_tasks)} active tasks")
             return active_tasks
+        elif result is None:
+            _LOGGER.warning("Failed to load tasks, returning empty list")
+            return []
         return []
 
     async def get_sync_data(self) -> Optional[Dict]:
@@ -131,7 +158,7 @@ class TimeflipAPI:
         if result:
             return result
 
-        _LOGGER.warning("Main sync endpoint failed, trying /api/sync/all")
+        _LOGGER.debug("Main sync endpoint returned nothing, trying /api/sync/all")
         result = await self._request("GET", "/api/sync/all")
         if result:
             return result
@@ -140,13 +167,7 @@ class TimeflipAPI:
         return {"tasks": [], "timeIntervals": []}
 
     async def get_weekly_report(self, start_date: str, end_date: str, task_ids: List[int] = None) -> Optional[Dict]:
-        """Get weekly report.
-
-        Args:
-            start_date: Start date in format YYYY-MM-DD
-            end_date: End date in format YYYY-MM-DD
-            task_ids: Optional list of task IDs to filter
-        """
+        """Get weekly report."""
         body = {
             "beginDateStr": start_date,
             "endDateStr": end_date
@@ -184,7 +205,12 @@ class TimeflipAPI:
     async def start_task(self, task_id: int) -> bool:
         """Start tracking a task."""
         now = datetime.utcnow()
+
+        # Get current sync data
         sync_data = await self.get_sync_data()
+        if sync_data is None:
+            _LOGGER.error("Cannot start task: failed to get sync data")
+            return False
 
         interval = {
             "startedAt": now.strftime("%Y-%m-%d %H:%M:%S"),
@@ -201,10 +227,10 @@ class TimeflipAPI:
         result = await self._request("POST", "/api/sync", json=request_data)
 
         if result is not None:
-            _LOGGER.info(f"Successfully started task {task_id}")
+            _LOGGER.info(f"✓ Successfully started task {task_id}")
             return True
         else:
-            _LOGGER.error(f"Failed to start task {task_id}")
+            _LOGGER.error(f"✗ Failed to start task {task_id}")
             return False
 
     async def stop_tracking(self, current_interval: Dict) -> bool:
@@ -224,6 +250,9 @@ class TimeflipAPI:
             updated_interval["duration"] = duration
 
             sync_data = await self.get_sync_data()
+            if sync_data is None:
+                _LOGGER.error("Cannot stop tracking: failed to get sync data")
+                return False
 
             request_data = {
                 "tasks": sync_data.get("tasks", []),
@@ -234,12 +263,12 @@ class TimeflipAPI:
             result = await self._request("POST", "/api/sync", json=request_data)
 
             if result is not None:
-                _LOGGER.info("Successfully stopped tracking")
+                _LOGGER.info("✓ Successfully stopped tracking")
                 return True
             else:
-                _LOGGER.error("Failed to stop tracking")
+                _LOGGER.error("✗ Failed to stop tracking")
                 return False
 
         except Exception as e:
-            _LOGGER.error(f"Error stopping tracking: {e}")
+            _LOGGER.error(f"✗ Error stopping tracking: {e}")
             return False
