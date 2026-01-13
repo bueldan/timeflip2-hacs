@@ -9,6 +9,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - [FEATURE] Add: Get reports and tasks
 - [TASK] Bugfixes
 
+### 1.0.5
+- [TASK] Bugfixes
+
 ### 1.0.4
 - [TASK] Bugfixes
 
