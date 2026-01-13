@@ -11,7 +11,8 @@
       }
     },
     "error": {
-      "invalid_auth": "Ungültige Anmeldedaten"
+      "invalid_auth": "Ungültige Anmeldedaten",
+      "cannot_connect": "Verbindung fehlgeschlagen"
     },
     "abort": {
       "already_configured": "Dieser Account ist bereits konfiguriert"

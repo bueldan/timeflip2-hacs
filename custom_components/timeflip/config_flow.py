@@ -29,22 +29,26 @@ class TimeflipConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
             email = user_input[CONF_EMAIL]
             password = user_input[CONF_PASSWORD]
 
-            session = async_get_clientsession(self.hass)
-            api = TimeflipAPI(email, password, session)
+            try:
+                session = async_get_clientsession(self.hass)
+                api = TimeflipAPI(email, password, session)
 
-            if await api.authenticate():
-                await self.async_set_unique_id(email)
-                self._abort_if_unique_id_configured()
-                
-                return self.async_create_entry(
-                    title=f"Timeflip ({email})",
-                    data={
-                        CONF_EMAIL: email,
-                        CONF_PASSWORD: password,
-                    },
-                )
-            else:
-                errors["base"] = "invalid_auth"
+                if await api.authenticate():
+                    await self.async_set_unique_id(email.lower())
+                    self._abort_if_unique_id_configured()
+
+                    return self.async_create_entry(
+                        title=f"Timeflip ({email})",
+                        data={
+                            CONF_EMAIL: email,
+                            CONF_PASSWORD: password,
+                        },
+                    )
+                else:
+                    errors["base"] = "invalid_auth"
+            except Exception as e:
+                _LOGGER.error(f"Error during authentication: {e}")
+                errors["base"] = "cannot_connect"
 
         return self.async_show_form(
             step_id="user",
