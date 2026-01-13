@@ -1,5 +1,5 @@
 import logging
-from datetime import datetime
+from datetime import datetime, timedelta
 from typing import Dict, List, Optional
 
 import aiohttp
@@ -19,34 +19,53 @@ class TimeflipAPI:
         self.password = password
         self.session = session
         self.token: Optional[str] = None
+        self._auth_lock = False  # Verhindert mehrfache gleichzeitige Auth-Versuche
 
     async def authenticate(self) -> bool:
         """Authenticate with Timeflip API."""
+        if self._auth_lock:
+            _LOGGER.debug("Authentication already in progress, waiting...")
+            return False
+
+        self._auth_lock = True
         try:
             async with async_timeout.timeout(10):
+                _LOGGER.info("Attempting authentication with Timeflip API...")
                 response = await self.session.post(
                     f"{API_BASE_URL}/api/auth/email/sign-in",
                     json={"email": self.email, "password": self.password},
                     headers={"Content-Type": "application/json"}
                 )
+
                 if response.status == 200:
                     data = await response.json()
                     self.token = data.get("token")
-                    _LOGGER.info("Successfully authenticated with Timeflip API")
-                    return True
+                    if self.token:
+                        _LOGGER.info("✓ Successfully authenticated with Timeflip API")
+                        _LOGGER.debug(f"Token starts with: {self.token[:20]}...")
+                        return True
+                    else:
+                        _LOGGER.error("✗ No token received from API")
+                        return False
                 else:
                     error_text = await response.text()
-                    _LOGGER.error(f"Authentication failed with status {response.status}: {error_text}")
+                    _LOGGER.error(f"✗ Authentication failed with status {response.status}: {error_text}")
                     return False
         except Exception as e:
-            _LOGGER.error(f"Authentication error: {e}")
+            _LOGGER.error(f"✗ Authentication exception: {e}")
             return False
+        finally:
+            self._auth_lock = False
 
-    async def _request(self, method: str, endpoint: str, **kwargs) -> Optional[Dict]:
-        """Make authenticated API request."""
+    async def _request(self, method: str, endpoint: str, retry_count: int = 0, **kwargs) -> Optional[Dict]:
+        """Make authenticated API request with retry logic."""
+        max_retries = 1  # Nur einmal neu authentifizieren
+
+        # Wenn kein Token, erst authentifizieren
         if not self.token:
+            _LOGGER.debug("No token available, authenticating first...")
             if not await self.authenticate():
-                _LOGGER.error("Cannot make request: authentication failed")
+                _LOGGER.error("Cannot make request: initial authentication failed")
                 return None
 
         headers = kwargs.pop("headers", {})
@@ -54,7 +73,8 @@ class TimeflipAPI:
         headers["Content-Type"] = "application/json"
 
         try:
-            async with async_timeout.timeout(10):
+            async with async_timeout.timeout(15):
+                _LOGGER.debug(f"Making request: {method} {endpoint}")
                 response = await self.session.request(
                     method,
                     f"{API_BASE_URL}{endpoint}",
@@ -62,18 +82,16 @@ class TimeflipAPI:
                     **kwargs
                 )
 
-                _LOGGER.debug(f"API {method} {endpoint} - Status: {response.status}")
+                _LOGGER.debug(f"Response status: {response.status} for {method} {endpoint}")
 
-                # Check if token is expired (can be 401 OR 403 with specific message)
+                # Check for token expiration
                 if response.status in [401, 403]:
                     try:
                         error_data = await response.json()
-                        # Check if it's a token error
                         if error_data.get("code") == 401001 or "jwt token" in error_data.get("message", "").lower():
                             _LOGGER.warning("Token expired or invalid, re-authenticating...")
                             self.token = None
                             if await self.authenticate():
-                                # Retry the request with new token
                                 return await self._request(method, endpoint, **kwargs)
                             _LOGGER.error("Re-authentication failed")
                             return None
@@ -88,7 +106,6 @@ class TimeflipAPI:
                     try:
                         return await response.json()
                     except:
-                        # Some endpoints might return empty response
                         return {}
 
                 error_text = await response.text()
@@ -109,37 +126,72 @@ class TimeflipAPI:
         return []
 
     async def get_sync_data(self) -> Optional[Dict]:
-        """Get sync data - try different endpoints."""
-        # Try the main sync endpoint
+        """Get sync data."""
         result = await self._request("GET", "/api/sync")
         if result:
             return result
 
-        # If that fails, try the alternative endpoint
         _LOGGER.warning("Main sync endpoint failed, trying /api/sync/all")
         result = await self._request("GET", "/api/sync/all")
         if result:
             return result
 
-        # Return empty structure if both fail
         _LOGGER.warning("Could not fetch sync data, returning empty structure")
         return {"tasks": [], "timeIntervals": []}
+
+    async def get_weekly_report(self, start_date: str, end_date: str, task_ids: List[int] = None) -> Optional[Dict]:
+        """Get weekly report.
+
+        Args:
+            start_date: Start date in format YYYY-MM-DD
+            end_date: End date in format YYYY-MM-DD
+            task_ids: Optional list of task IDs to filter
+        """
+        body = {
+            "beginDateStr": start_date,
+            "endDateStr": end_date
+        }
+
+        if task_ids:
+            body["taskIds"] = task_ids
+
+        result = await self._request("POST", "/report/weekly", json=body)
+        return result
+
+    async def get_daily_report(self, start_date: str, end_date: str, task_ids: List[int] = None) -> Optional[Dict]:
+        """Get daily report."""
+        body = {
+            "beginDateStr": start_date,
+            "endDateStr": end_date
+        }
+
+        if task_ids:
+            body["taskIds"] = task_ids
+
+        result = await self._request("POST", "/report/daily", json=body)
+        return result
+
+    async def get_tasks_by_period(self, start_date: str, end_date: str) -> Optional[List[Dict]]:
+        """Get tasks with time entries for a period."""
+        params = {
+            "beginDateStr": start_date,
+            "endDateStr": end_date
+        }
+
+        result = await self._request("GET", "/api/tasks/byPeriod", params=params)
+        return result if isinstance(result, list) else []
 
     async def start_task(self, task_id: int) -> bool:
         """Start tracking a task."""
         now = datetime.utcnow()
-
-        # First, get current sync data to see what format is expected
         sync_data = await self.get_sync_data()
 
-        # Create new interval
         interval = {
             "startedAt": now.strftime("%Y-%m-%d %H:%M:%S"),
             "duration": 0,
             "taskId": task_id,
         }
 
-        # Build sync request with existing data + new interval
         request_data = {
             "tasks": sync_data.get("tasks", []),
             "timeIntervals": [interval]
@@ -171,7 +223,6 @@ class TimeflipAPI:
             updated_interval = current_interval.copy()
             updated_interval["duration"] = duration
 
-            # Get current sync data
             sync_data = await self.get_sync_data()
 
             request_data = {

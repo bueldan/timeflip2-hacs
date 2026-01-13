@@ -154,12 +154,65 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
             notification_id="timeflip_auth_test"
         )
 
+    async def handle_weekly_report(call):
+        """Handle weekly report service."""
+        # Hole Parameter oder nutze Defaults
+        start_day = call.data.get("start_day", "monday")
+
+        # Berechne Datumbereich
+        today = datetime.now()
+        day_map = {"sunday": 0, "monday": 1, "tuesday": 2, "wednesday": 3,
+                   "thursday": 4, "friday": 5, "saturday": 6}
+        target_day = day_map.get(start_day, 1)
+        current_day = today.weekday() + 1  # weekday() gibt 0-6 zurück (Mo-So)
+        if current_day == 7:
+            current_day = 0
+
+        days_to_subtract = (current_day - target_day + 7) % 7
+        week_start = today - timedelta(days=days_to_subtract)
+        week_start = week_start.replace(hour=0, minute=0, second=0, microsecond=0)
+
+        week_end = week_start + timedelta(days=6, hours=23, minutes=59, seconds=59)
+
+        start_str = week_start.strftime("%Y-%m-%d")
+        end_str = week_end.strftime("%Y-%m-%d")
+
+        _LOGGER.info(f"Requesting weekly report from {start_str} to {end_str}")
+
+        report = await api.get_weekly_report(start_str, end_str)
+
+        if report:
+            # Format report für Anzeige
+            total_time = report.get("avgTime", 0)
+            weeks = report.get("weeks", [])
+
+            report_text = f"**Wochenbericht {start_str} bis {end_str}**\n\n"
+            report_text += f"Durchschnittliche Zeit: {total_time // 3600}h {(total_time % 3600) // 60}m\n\n"
+
+            if weeks:
+                for week in weeks:
+                    tasks_info = week.get("tasksInfo", [])
+                    for task_info in tasks_info:
+                        task = task_info.get("task", {})
+                        time = task_info.get("totalTime", 0)
+                        report_text += f"• {task.get('name')}: {time // 3600}h {(time % 3600) // 60}m\n"
+
+            hass.components.persistent_notification.create(
+                report_text,
+                title="Timeflip Wochenbericht",
+                notification_id="timeflip_weekly_report"
+            )
+            _LOGGER.info("Weekly report generated successfully")
+        else:
+            _LOGGER.error("Failed to generate weekly report")
+
     # Register all services
     hass.services.async_register(DOMAIN, "start_task", handle_start_task)
     hass.services.async_register(DOMAIN, "stop_tracking", handle_stop_tracking)
     hass.services.async_register(DOMAIN, "list_tasks", handle_list_tasks)
     hass.services.async_register(DOMAIN, "debug_api", handle_debug_api)
     hass.services.async_register(DOMAIN, "test_auth", handle_test_auth)
+    hass.services.async_register(DOMAIN, "weekly_report", handle_weekly_report)
 
     return True
 

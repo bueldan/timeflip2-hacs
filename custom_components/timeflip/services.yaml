@@ -19,3 +19,29 @@ stop_tracking:
 list_tasks:
   name: Tasks auflisten
   description: Listet alle verfügbaren Tasks auf
+
+debug_api:
+  name: API Debug
+  description: Testet die API-Verbindung
+
+test_auth:
+  name: Authentifizierung testen
+  description: Testet die Anmeldedaten
+
+weekly_report:
+  name: Wochenbericht
+  description: Erstellt einen Wochenbericht
+  fields:
+    start_day:
+      name: Wochenstart
+      description: Erster Tag der Woche
+      default: monday
+      selector:
+        select:
+          options:
+            - label: Montag
+              value: monday
+            - label: Sonntag
+              value: sunday
+            - label: Samstag
+              value: saturday
