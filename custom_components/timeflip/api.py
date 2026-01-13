@@ -71,12 +71,12 @@ class TimeflipAPI:
                         # Check if it's a token error
                         if error_data.get("code") == 401001 or "jwt token" in error_data.get("message", "").lower():
                             _LOGGER.warning("Token expired or invalid, re-authenticating...")
-                    self.token = None
-                    if await self.authenticate():
+                            self.token = None
+                            if await self.authenticate():
                                 # Retry the request with new token
-                        return await self._request(method, endpoint, **kwargs)
+                                return await self._request(method, endpoint, **kwargs)
                             _LOGGER.error("Re-authentication failed")
-                    return None
+                            return None
                     except:
                         pass
 
