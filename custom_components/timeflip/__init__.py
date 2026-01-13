@@ -25,7 +25,6 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
     session = async_get_clientsession(hass)
     api = TimeflipAPI(email, password, session)
 
-    # Test authentication
     if not await api.authenticate():
         _LOGGER.error("Failed to authenticate with Timeflip API")
         return False
@@ -48,7 +47,7 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
             success = await api.start_task(task_id)
             if success:
                 _LOGGER.info(f"Started task {task_id}")
-            await coordinator.async_request_refresh()
+                await coordinator.async_request_refresh()
             else:
                 _LOGGER.error(f"Failed to start task {task_id}")
 
@@ -61,7 +60,7 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
             success = await api.stop_tracking(current)
             if success:
                 _LOGGER.info("Stopped tracking")
-            await coordinator.async_request_refresh()
+                await coordinator.async_request_refresh()
             else:
                 _LOGGER.error("Failed to stop tracking")
         else:
@@ -79,7 +78,7 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
                 f"Tag: {task.get('tag', 'N/A')}"
             )
 
-        # Auch als persistent notification anzeigen
+        # Show as persistent notification
         task_list = "\n".join([
             f"• {task.get('name')} (ID: {task.get('id')}, Seite: {task.get('sideIndex')})"
             for task in sorted(tasks, key=lambda t: t.get("sideIndex", 999))
@@ -98,7 +97,10 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
         # Test authentication
         auth_ok = await api.authenticate()
         _LOGGER.info(f"Authentication: {'OK' if auth_ok else 'FAILED'}")
-        _LOGGER.info(f"Token: {api.token[:20]}..." if api.token else "No token")
+        if api.token:
+            _LOGGER.info(f"Token: {api.token[:20]}...")
+        else:
+            _LOGGER.info("No token")
 
         # Test tasks endpoint
         tasks = await api.get_tasks()
@@ -129,8 +131,9 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
         auth_ok = await api.authenticate()
 
         if auth_ok:
-            _LOGGER.info(f"✓ Authentication successful")
-            _LOGGER.info(f"Token (first 30 chars): {api.token[:30]}...")
+            _LOGGER.info("✓ Authentication successful")
+            if api.token:
+                _LOGGER.info(f"Token (first 30 chars): {api.token[:30]}...")
 
             # Now test a simple API call
             tasks = await api.get_tasks()
@@ -151,6 +154,7 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
             notification_id="timeflip_auth_test"
         )
 
+    # Register all services
     hass.services.async_register(DOMAIN, "start_task", handle_start_task)
     hass.services.async_register(DOMAIN, "stop_tracking", handle_stop_tracking)
     hass.services.async_register(DOMAIN, "list_tasks", handle_list_tasks)
