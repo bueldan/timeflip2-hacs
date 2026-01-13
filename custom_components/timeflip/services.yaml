@@ -1,0 +1,21 @@
+start_task:
+  name: Task starten
+  description: Startet ein Timeflip Task/Projekt
+  fields:
+    task_id:
+      name: Task ID
+      description: Die ID des zu startenden Tasks
+      required: true
+      example: 12345
+      selector:
+        number:
+          min: 1
+          max: 999999
+
+stop_tracking:
+  name: Tracking stoppen
+  description: Stoppt das aktuelle Tracking
+
+list_tasks:
+  name: Tasks auflisten
+  description: Listet alle verfügbaren Tasks auf
