@@ -1,0 +1,20 @@
+{
+  "config": {
+    "step": {
+      "user": {
+        "title": "Timeflip Setup",
+        "description": "Gib deine Timeflip Zugangsdaten ein",
+        "data": {
+          "email": "E-Mail",
+          "password": "Passwort"
+        }
+      }
+    },
+    "error": {
+      "invalid_auth": "Ungültige Anmeldedaten"
+    },
+    "abort": {
+      "already_configured": "Dieser Account ist bereits konfiguriert"
+    }
+  }
+}
