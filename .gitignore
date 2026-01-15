@@ -8,3 +8,4 @@
 /.idea/timeflip2-hacs.iml
 /.idea/vcs.xml
 .DS_Store
+__pycache__

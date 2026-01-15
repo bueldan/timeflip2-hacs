@@ -206,6 +206,40 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
         else:
             _LOGGER.error("Failed to generate weekly report")
 
+    async def handle_auth_debug(call):
+        """Detailliertes Auth-Debugging."""
+        _LOGGER.info("=== DETAILED AUTH DEBUG ===")
+
+        # Status vor Auth
+        _LOGGER.info(f"Current token: {api.token[:30] if api.token else 'None'}...")
+        _LOGGER.info(f"Token valid: {api._is_token_valid()}")
+        _LOGGER.info(f"Token expiry: {api.token_expiry}")
+
+        # Force neue Auth
+        api.token = None
+        api.token_expiry = None
+
+        success = await api.authenticate(force=True)
+
+        _LOGGER.info(f"Auth result: {success}")
+        _LOGGER.info(f"New token: {api.token[:30] if api.token else 'None'}...")
+
+        if success:
+            # Teste API Call
+            _LOGGER.info("Testing API call...")
+            tasks = await api.get_tasks()
+            _LOGGER.info(f"Tasks result: {len(tasks) if tasks else 'Failed'}")
+
+        hass.components.persistent_notification.create(
+            f"**Auth Debug:**\n\n"
+            f"Auth: {'✓' if success else '✗'}\n"
+            f"Token: {api.token[:20] if api.token else 'None'}...\n"
+            f"Valid until: {api.token_expiry}\n"
+            f"Test call: {'✓' if tasks else '✗'}",
+            title="Timeflip Auth Debug",
+            notification_id="timeflip_auth_debug"
+        )
+
     # Register all services
     hass.services.async_register(DOMAIN, "start_task", handle_start_task)
     hass.services.async_register(DOMAIN, "stop_tracking", handle_stop_tracking)
@@ -213,6 +247,7 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
     hass.services.async_register(DOMAIN, "debug_api", handle_debug_api)
     hass.services.async_register(DOMAIN, "test_auth", handle_test_auth)
     hass.services.async_register(DOMAIN, "weekly_report", handle_weekly_report)
+    hass.services.async_register(DOMAIN, "auth_debug", handle_auth_debug)
 
     return True
 
